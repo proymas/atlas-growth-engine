@@ -3,29 +3,32 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const authDir = path.resolve('.auth');
-const authFile = path.join(authDir, 'reddit-storage-state.json');
+const profileDir = path.join(authDir, 'reddit-profile');
 
-await fs.mkdir(authDir, { recursive: true });
+await fs.mkdir(profileDir, { recursive: true });
 
-const browser = await chromium.launch({ headless: false });
-const context = await browser.newContext();
-const page = await context.newPage();
+const context = await chromium.launchPersistentContext(profileDir, {
+  headless: false,
+  viewport: null,
+});
 
-console.log('\nSe abrirá Reddit en Chromium.');
-console.log('1) Inicia sesión manualmente con la cuenta de Atlas.');
-console.log('2) Cuando veas Reddit ya autenticado, vuelve a esta ventana.');
-console.log('3) Pulsa ENTER para guardar la sesión localmente.\n');
+const pages = context.pages();
+const page = pages[0] ?? await context.newPage();
 
-await page.goto('https://www.reddit.com/login/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+console.log('\nSe abrirá Reddit en un perfil Chromium persistente.');
+console.log('1) Inicia sesión manualmente con la cuenta de Atlas si hace falta.');
+console.log('2) Cuando veas Reddit autenticado, vuelve a esta ventana.');
+console.log('3) Pulsa ENTER para cerrar; el perfil completo quedará guardado localmente.\n');
+
+await page.goto('https://www.reddit.com/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
 process.stdin.resume();
 await new Promise<void>((resolve) => {
   process.stdin.once('data', () => resolve());
 });
 
-await context.storageState({ path: authFile });
-console.log(`Sesión guardada localmente en ${authFile}`);
-console.log('Ese archivo está excluido de Git y no debe compartirse.');
+console.log(`Perfil persistente guardado localmente en ${profileDir}`);
+console.log('Esa carpeta está excluida de Git y no debe compartirse.');
 
-await browser.close();
+await context.close();
 process.stdin.pause();
