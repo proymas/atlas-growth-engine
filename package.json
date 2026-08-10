@@ -11,7 +11,8 @@
     "smoke:reddit": "tsx src/smoke/reddit.ts",
     "smoke:reddit-oauth": "tsx src/reddit/read-smoke.ts",
     "reddit:login": "tsx src/reddit/login.ts",
-    "smoke:reddit-auth": "tsx src/reddit/auth-smoke.ts"
+    "smoke:reddit-auth": "tsx src/reddit/auth-smoke.ts",
+    "smoke:x-env": "node --env-file=.env --import tsx src/x/auth-smoke.ts"
   },
   "engines": {
     "node": ">=20"
