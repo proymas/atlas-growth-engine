@@ -16,6 +16,7 @@
     "reddit:prepare-actions": "tsx src/reddit/prepare-actions.ts",
     "reddit:followups": "tsx src/reddit/followup-scan.ts",
     "reddit:publish": "tsx src/reddit/publish-actions.ts",
+    "reddit:airtable-sync": "node --env-file=.env --import tsx src/reddit/airtable-sync.ts",
     "reddit:install-worker": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-reddit-worker.ps1",
     "reddit:run-worker": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/run-reddit-worker.ps1",
     "smoke:x-env": "node --env-file=.env --import tsx src/x/auth-smoke.ts",
