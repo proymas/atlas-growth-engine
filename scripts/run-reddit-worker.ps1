@@ -13,4 +13,15 @@ cmd.exe /d /c "git pull --ff-only >> `"$log`" 2>&1"
 
 cmd.exe /d /c "npm.cmd run reddit:radar >> `"$log`" 2>&1"
 "radar_exit=$LASTEXITCODE" | Out-File -FilePath $log -Append -Encoding utf8
-exit $LASTEXITCODE
+
+cmd.exe /d /c "npm.cmd run reddit:prepare-actions >> `"$log`" 2>&1"
+"prepare_exit=$LASTEXITCODE" | Out-File -FilePath $log -Append -Encoding utf8
+
+cmd.exe /d /c "npm.cmd run reddit:followups >> `"$log`" 2>&1"
+"followup_exit=$LASTEXITCODE" | Out-File -FilePath $log -Append -Encoding utf8
+
+# Publishing is intentionally gated behind REDDIT_LIVE_POSTING=1.
+cmd.exe /d /c "npm.cmd run reddit:publish >> `"$log`" 2>&1"
+"publish_exit=$LASTEXITCODE" | Out-File -FilePath $log -Append -Encoding utf8
+
+exit 0
