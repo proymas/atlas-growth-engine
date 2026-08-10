@@ -16,17 +16,22 @@ export type ScoredCandidate = RedditCandidate & {
 };
 
 const positiveSignals: Array<[RegExp, number, string]> = [
-  [/validate|validation|would you pay|pay for|idea feedback|roast my|should i build|thinking of building/i, 4, 'active_validation'],
-  [/mvp|just launched|launched|beta|prototype|first version/i, 3, 'mvp_or_launch'],
-  [/zero customers|no customers|no users|0 users|first customer|first users|customers?\b/i, 4, 'customer_problem'],
-  [/pivot|should i continue|keep building|worth building|worth continuing/i, 4, 'continue_or_pivot'],
-  [/feedback|looking for feedback|need feedback|thoughts\?/i, 2, 'asks_feedback'],
-  [/saas|micro-?saas|app|ecommerce|marketplace|software|startup|product/i, 1, 'digital_business'],
+  [/validate|validation|validating|would you pay|pay for|idea feedback|roast my|should i build|should we build|thinking of building|worth building/i, 4, 'active_validation'],
+  [/mvp|just launched|launched|launching|beta|prototype|first version|shipping|shipped/i, 3, 'mvp_or_launch'],
+  [/zero customers|no customers|no users|0 users|first customer|first users|first paying|customers?\b|users?\b/i, 3, 'customer_problem'],
+  [/pivot|should i continue|should we continue|keep building|stop building|worth continuing|give up/i, 4, 'continue_or_pivot'],
+  [/feedback|looking for feedback|need feedback|thoughts\?|what do you think|any advice|advice\?|opinions?\?|critique|tear.*apart/i, 2, 'asks_feedback'],
+  [/struggling|stuck|can't get|cannot get|not getting|hard to get|how do i get|how can i get/i, 2, 'active_problem'],
+  [/idea|concept|building|built|product|tool|platform|service/i, 1, 'building_context'],
+  [/saas|micro-?saas|app|ecommerce|marketplace|software|startup|indie hacker|side project/i, 1, 'digital_business'],
+  [/pricing|price|charge|subscription|monetiz|revenue|paid|paying/i, 2, 'commercial_question'],
+  [/customer acquisition|distribution|marketing|sales|traction|growth|acquire users|find users|find customers/i, 2, 'go_to_market_problem'],
 ];
 
 const weakOrLowIntent: Array<[RegExp, number, string]> = [
-  [/showcase|check out my|upvote|follow me|newsletter|promo code|discount/i, -2, 'promo_heavy'],
-  [/hiring|job|resume|cv|salary/i, -3, 'not_icp'],
+  [/showcase|check out my|upvote|follow me|newsletter|promo code|discount|lifetime deal/i, -2, 'promo_heavy'],
+  [/hiring|job|resume|cv|salary|internship/i, -4, 'not_icp'],
+  [/course|agency for hire|dm me|book a call/i, -2, 'seller_not_buyer'],
 ];
 
 export function scoreCandidate(candidate: RedditCandidate): ScoredCandidate {
@@ -51,19 +56,19 @@ export function scoreCandidate(candidate: RedditCandidate): ScoredCandidate {
   let risk = 'unclear_business_risk';
   let nextQuestion = 'What is the single assumption you most need the market to prove before you invest more time in this?';
 
-  if (/no users|zero customers|no customers|first customer|first users/.test(lower)) {
+  if (/no users|zero customers|no customers|first customer|first users|traction|customer acquisition|distribution|can't get|cannot get|not getting/.test(lower)) {
     risk = 'demand_or_distribution';
     nextQuestion = 'What have you already asked a prospect to do that would count as real commitment, not just positive feedback?';
-  } else if (/would you pay|pay for|pricing|price/.test(lower)) {
+  } else if (/would you pay|pay for|pricing|price|charge|subscription|monetiz|paying/.test(lower)) {
     risk = 'willingness_to_pay';
     nextQuestion = 'Have you tested a concrete price and asked anyone to commit money, a deposit, or a pre-order?';
-  } else if (/mvp|prototype|beta|just launched|launched/.test(lower)) {
+  } else if (/mvp|prototype|beta|just launched|launched|launching|shipping|shipped/.test(lower)) {
     risk = 'mvp_learning_goal';
     nextQuestion = 'What specific behavior would make this MVP a success or failure for you in the next two weeks?';
-  } else if (/pivot|continue|keep building|worth building/.test(lower)) {
+  } else if (/pivot|continue|keep building|stop building|worth building|give up/.test(lower)) {
     risk = 'continue_vs_pivot';
     nextQuestion = 'What evidence would justify another month of building, and what evidence would make you stop or pivot?';
-  } else if (/validate|validation|should i build|thinking of building/.test(lower)) {
+  } else if (/validate|validation|validating|should i build|should we build|thinking of building|idea feedback|feedback/.test(lower)) {
     risk = 'problem_and_demand_validation';
     nextQuestion = 'What is the riskiest assumption here: that the problem is painful, that this audience has it, or that they will pay to solve it?';
   }
