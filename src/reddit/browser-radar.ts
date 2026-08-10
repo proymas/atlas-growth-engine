@@ -8,7 +8,7 @@ const stateDir = path.resolve('.state');
 const stateFile = path.join(stateDir, 'reddit.json');
 
 const subreddits = ['SideProject', 'SaaS', 'startups', 'Entrepreneur', 'indiehackers'];
-const minScore = 4;
+const minScore = 3;
 
 await fs.mkdir(profileDir, { recursive: true });
 await fs.mkdir(stateDir, { recursive: true });
@@ -80,11 +80,13 @@ for (const subreddit of subreddits) {
   await page.waitForTimeout(1800);
 }
 
-const now = new Date().toISOString();
-const scored = candidates
+const allScored = candidates
   .map(scoreCandidate)
+  .sort((a, b) => b.score - a.score);
+
+const now = new Date().toISOString();
+const scored = allScored
   .filter((x) => x.score >= minScore)
-  .sort((a, b) => b.score - a.score)
   .slice(0, 10)
   .map((x) => ({
     ...x,
@@ -103,6 +105,9 @@ console.log(JSON.stringify({
   scanned: candidates.length,
   qualified: scored.length,
   opportunities: scored,
+  nearMisses: allScored.slice(0, 12).map(({ id, subreddit, title, url, score, signals, risk }) => ({
+    id, subreddit, title, url, score, signals, risk,
+  })),
 }, null, 2));
 
 await context.close();
