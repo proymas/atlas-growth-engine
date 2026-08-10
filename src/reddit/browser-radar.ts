@@ -13,43 +13,28 @@ const minScore = 3;
 await fs.mkdir(profileDir, { recursive: true });
 await fs.mkdir(stateDir, { recursive: true });
 
-let seen: Record<string, { firstSeen: string; lastSeen: string }> = {};
-try {
-  seen = JSON.parse(await fs.readFile(stateFile, 'utf8'));
-} catch {}
+let seen: Record<string, { firstSeen: string; lastSeen: string; url?: string; subreddit?: string; title?: string; score?: number }> = {};
+try { seen = JSON.parse(await fs.readFile(stateFile, 'utf8')); } catch {}
 
-const context = await chromium.launchPersistentContext(profileDir, {
-  headless: false,
-  viewport: null,
-});
+const context = await chromium.launchPersistentContext(profileDir, { headless: false, viewport: null });
 const pages = context.pages();
 const page = pages[0] ?? await context.newPage();
-
 const candidates: RedditCandidate[] = [];
 
 for (const subreddit of subreddits) {
   const url = `https://www.reddit.com/r/${subreddit}/new/`;
   let response;
-  try {
-    response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  } catch (error) {
-    console.error(JSON.stringify({ subreddit, ok: false, error: String(error) }));
-    continue;
-  }
+  try { response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 }); }
+  catch (error) { console.error(JSON.stringify({ subreddit, ok: false, error: String(error) })); continue; }
 
   const status = response?.status() ?? null;
-  if (!response?.ok()) {
-    console.error(JSON.stringify({ subreddit, ok: false, status, url: page.url() }));
-    continue;
-  }
-
+  if (!response?.ok()) { console.error(JSON.stringify({ subreddit, ok: false, status, url: page.url() })); continue; }
   await page.waitForTimeout(2500);
 
   const extracted = await page.evaluate(() => {
     const anchors = Array.from(document.querySelectorAll('a[href*="/comments/"]')) as HTMLAnchorElement[];
     const out: Array<{ id: string; title: string; url: string }> = [];
     const used = new Set<string>();
-
     for (const a of anchors) {
       const href = a.href;
       const match = href.match(/\/comments\/([a-z0-9]+)\//i);
@@ -64,39 +49,24 @@ for (const subreddit of subreddits) {
   });
 
   console.log(JSON.stringify({ subreddit, ok: true, status, extracted: extracted.length }));
-
-  for (const item of extracted) {
-    candidates.push({
-      id: item.id,
-      subreddit,
-      title: item.title,
-      body: '',
-      author: '',
-      url: item.url,
-      createdUtc: 0,
-    });
-  }
-
+  for (const item of extracted) candidates.push({ id: item.id, subreddit, title: item.title, body: '', author: '', url: item.url, createdUtc: 0 });
   await page.waitForTimeout(1800);
 }
 
-const allScored = candidates
-  .map(scoreCandidate)
-  .sort((a, b) => b.score - a.score);
-
+const allScored = candidates.map(scoreCandidate).sort((a, b) => b.score - a.score);
 const now = new Date().toISOString();
-const scored = allScored
-  .filter((x) => x.score >= minScore)
-  .slice(0, 10)
-  .map((x) => ({
-    ...x,
-    alreadySeen: Boolean(seen[x.id]),
-    draft: buildValueFirstDraft(x),
-  }));
+const scored = allScored.filter(x => x.score >= minScore).slice(0, 10).map(x => ({ ...x, alreadySeen: Boolean(seen[x.id]), draft: buildValueFirstDraft(x) }));
 
 for (const item of scored) {
   const prev = seen[item.id];
-  seen[item.id] = { firstSeen: prev?.firstSeen ?? now, lastSeen: now };
+  seen[item.id] = {
+    firstSeen: prev?.firstSeen ?? now,
+    lastSeen: now,
+    url: item.url,
+    subreddit: item.subreddit,
+    title: item.title,
+    score: item.score,
+  };
 }
 await fs.writeFile(stateFile, JSON.stringify(seen, null, 2));
 
@@ -105,9 +75,7 @@ console.log(JSON.stringify({
   scanned: candidates.length,
   qualified: scored.length,
   opportunities: scored,
-  nearMisses: allScored.slice(0, 12).map(({ id, subreddit, title, url, score, signals, risk }) => ({
-    id, subreddit, title, url, score, signals, risk,
-  })),
+  nearMisses: allScored.slice(0, 12).map(({ id, subreddit, title, url, score, signals, risk }) => ({ id, subreddit, title, url, score, signals, risk })),
 }, null, 2));
 
 await context.close();
