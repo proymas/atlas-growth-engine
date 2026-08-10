@@ -9,7 +9,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "browser:install": "playwright install chromium",
     "smoke:reddit": "tsx src/smoke/reddit.ts",
-    "smoke:reddit-oauth": "tsx src/reddit/read-smoke.ts"
+    "smoke:reddit-oauth": "tsx src/reddit/read-smoke.ts",
+    "reddit:login": "tsx src/reddit/login.ts",
+    "smoke:reddit-auth": "tsx src/reddit/auth-smoke.ts"
   },
   "engines": {
     "node": ">=20"
