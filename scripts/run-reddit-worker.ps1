@@ -24,4 +24,8 @@ cmd.exe /d /c "npm.cmd run reddit:followups >> `"$log`" 2>&1"
 cmd.exe /d /c "npm.cmd run reddit:publish >> `"$log`" 2>&1"
 "publish_exit=$LASTEXITCODE" | Out-File -FilePath $log -Append -Encoding utf8
 
+# Central telemetry/memory: upsert qualified Reddit threads and action state into Airtable.
+cmd.exe /d /c "npm.cmd run reddit:airtable-sync >> `"$log`" 2>&1"
+"airtable_exit=$LASTEXITCODE" | Out-File -FilePath $log -Append -Encoding utf8
+
 exit 0
