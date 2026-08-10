@@ -3,14 +3,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { scoreCandidate, buildValueFirstDraft, type RedditCandidate } from './radar-core.js';
 
-const authFile = path.resolve('.auth/reddit-storage-state.json');
+const profileDir = path.resolve('.auth/reddit-profile');
 const stateDir = path.resolve('.state');
 const stateFile = path.join(stateDir, 'reddit.json');
 
 const subreddits = ['SideProject', 'SaaS', 'startups', 'Entrepreneur', 'indiehackers'];
 const minScore = 4;
-const maxPerSubreddit = 20;
 
+await fs.mkdir(profileDir, { recursive: true });
 await fs.mkdir(stateDir, { recursive: true });
 
 let seen: Record<string, { firstSeen: string; lastSeen: string }> = {};
@@ -18,56 +18,66 @@ try {
   seen = JSON.parse(await fs.readFile(stateFile, 'utf8'));
 } catch {}
 
-const browser = await chromium.launch({ headless: true });
-const context = await browser.newContext({ storageState: authFile });
-const page = await context.newPage();
+const context = await chromium.launchPersistentContext(profileDir, {
+  headless: false,
+  viewport: null,
+});
+const pages = context.pages();
+const page = pages[0] ?? await context.newPage();
 
 const candidates: RedditCandidate[] = [];
 
 for (const subreddit of subreddits) {
   const url = `https://www.reddit.com/r/${subreddit}/new/`;
-  const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  const status = response?.status() ?? null;
+  let response;
+  try {
+    response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  } catch (error) {
+    console.error(JSON.stringify({ subreddit, ok: false, error: String(error) }));
+    continue;
+  }
 
+  const status = response?.status() ?? null;
   if (!response?.ok()) {
     console.error(JSON.stringify({ subreddit, ok: false, status, url: page.url() }));
     continue;
   }
 
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2500);
 
-  const posts = await page.locator('shreddit-post').evaluateAll((nodes, limit) => {
-    return nodes.slice(0, Number(limit)).map((node: any) => ({
-      id: String(node.getAttribute('id') ?? node.getAttribute('thingid') ?? node.getAttribute('post-id') ?? ''),
-      title: String(node.getAttribute('post-title') ?? ''),
-      author: String(node.getAttribute('author') ?? ''),
-      permalink: String(node.getAttribute('permalink') ?? ''),
-      contentHref: String(node.getAttribute('content-href') ?? ''),
-    }));
-  }, maxPerSubreddit);
+  const extracted = await page.evaluate(() => {
+    const anchors = Array.from(document.querySelectorAll('a[href*="/comments/"]')) as HTMLAnchorElement[];
+    const out: Array<{ id: string; title: string; url: string }> = [];
+    const used = new Set<string>();
 
-  let extracted = 0;
-  for (const post of posts) {
-    const href = post.permalink || post.contentHref;
-    if (!post.title || !href) continue;
+    for (const a of anchors) {
+      const href = a.href;
+      const match = href.match(/\/comments\/([a-z0-9]+)\//i);
+      if (!match) continue;
+      const id = match[1];
+      const title = (a.textContent ?? '').trim().replace(/\s+/g, ' ');
+      if (!title || title.length < 8 || used.has(id)) continue;
+      used.add(id);
+      out.push({ id, title, url: href.split('?')[0] });
+    }
+    return out.slice(0, 25);
+  });
 
-    const absoluteUrl = href.startsWith('http') ? href : `https://www.reddit.com${href}`;
-    const idMatch = absoluteUrl.match(/\/comments\/([^/]+)/i);
-    const id = post.id || idMatch?.[1] || absoluteUrl;
+  console.log(JSON.stringify({ subreddit, ok: true, status, extracted: extracted.length }));
 
+  for (const item of extracted) {
     candidates.push({
-      id,
+      id: item.id,
       subreddit,
-      title: post.title,
+      title: item.title,
       body: '',
-      author: post.author,
-      url: absoluteUrl,
+      author: '',
+      url: item.url,
       createdUtc: 0,
     });
-    extracted += 1;
   }
 
-  console.error(JSON.stringify({ subreddit, ok: true, status, extracted }));
+  await page.waitForTimeout(1800);
 }
 
 const now = new Date().toISOString();
@@ -95,4 +105,4 @@ console.log(JSON.stringify({
   opportunities: scored,
 }, null, 2));
 
-await browser.close();
+await context.close();
