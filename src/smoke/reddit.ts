@@ -1,47 +1,45 @@
 import { chromium } from 'playwright';
 
-const targets = [
-  'https://www.reddit.com/r/SideProject/new/',
-  'https://old.reddit.com/r/SideProject/new/',
-  'https://www.reddit.com/r/SideProject/new.json?limit=5',
-];
+const target = 'https://www.reddit.com/r/SideProject/new.json?limit=5';
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
   userAgent:
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
   locale: 'en-US',
   viewport: { width: 1365, height: 768 },
 });
 
-const results = [];
-
 try {
-  for (const target of targets) {
-    const page = await context.newPage();
-    try {
-      const response = await page.goto(target, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30_000,
-      });
-      results.push({
+  const page = await context.newPage();
+  const response = await page.goto(target, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30_000,
+  });
+
+  const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 300);
+  const status = response?.status() ?? null;
+  const rateLimited = status === 429 || /too many requests|whoa there, pardner/i.test(body);
+
+  console.log(
+    JSON.stringify(
+      {
         target,
-        ok: Boolean(response?.ok()),
-        status: response?.status() ?? null,
+        ok: Boolean(response?.ok()) && !rateLimited,
+        status,
+        rateLimited,
         url: page.url(),
-        title: await page.title(),
-        bodyPrefix: (await page.locator('body').innerText().catch(() => '')).slice(0, 180),
-      });
-    } catch (error) {
-      results.push({ target, error: error instanceof Error ? error.message : String(error) });
-    } finally {
-      await page.close();
-    }
-  }
+        bodyPrefix: body,
+      },
+      null,
+      2,
+    ),
+  );
 
-  console.log(JSON.stringify(results, null, 2));
-
-  if (!results.some((r) => 'ok' in r && r.ok)) {
+  if (rateLimited) {
+    console.error('Reddit rate limit detected. Stop requests and retry later.');
+    process.exitCode = 3;
+  } else if (!response?.ok()) {
     process.exitCode = 2;
   }
 } finally {
