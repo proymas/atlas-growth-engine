@@ -15,7 +15,9 @@
     "smoke:x-env": "node --env-file=.env --import tsx src/x/auth-smoke.ts",
     "smoke:x-write": "node --env-file=.env --import tsx src/x/write-smoke.ts",
     "x:login": "tsx src/x/browser-login.ts",
-    "smoke:x-browser-auth": "tsx src/x/browser-auth-smoke.ts"
+    "smoke:x-browser-auth": "tsx src/x/browser-auth-smoke.ts",
+    "x:dry-run": "tsx src/x/dry-run.ts",
+    "x:radar": "tsx src/x/browser-radar.ts"
   },
   "engines": {
     "node": ">=20"
