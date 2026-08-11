@@ -97,7 +97,8 @@ export async function reasonWithGemini(ctx: ThreadContext, kind: 'reply' | 'foll
       generationConfig: {
         temperature: 0.35,
         maxOutputTokens: 1800,
-        responseFormat: { text: { mimeType: 'application/json', schema } },
+        responseMimeType: 'application/json',
+        responseSchema: schema,
       },
     }),
   });
