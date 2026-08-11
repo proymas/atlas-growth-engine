@@ -21,20 +21,18 @@
     "reddit:run-worker": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/run-reddit-worker.ps1",
     "smoke:x-env": "node --env-file=.env --import tsx src/x/auth-smoke.ts",
     "smoke:x-write": "node --env-file=.env --import tsx src/x/write-smoke.ts",
-    "x:login": "tsx src/x/browser-login.ts",
+    "x:login": "node --env-file=.env --import tsx src/x/browser-login.ts",
     "smoke:x-browser-auth": "tsx src/x/browser-auth-smoke.ts",
     "x:dry-run": "tsx src/x/dry-run.ts",
-    "x:radar": "tsx src/x/browser-radar.ts"
+    "x:radar": "node --env-file=.env --import tsx src/x/browser-radar.ts",
+    "x:prepare-actions": "node --env-file=.env --import tsx src/x/prepare-actions.ts",
+    "x:followups": "node --env-file=.env --import tsx src/x/followup-scan.ts",
+    "x:publish": "node --env-file=.env --import tsx src/x/publish-actions.ts",
+    "x:airtable-sync": "node --env-file=.env --import tsx src/x/airtable-sync.ts",
+    "x:run-worker": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/run-x-worker.ps1",
+    "x:install-worker": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-x-worker.ps1"
   },
-  "engines": {
-    "node": ">=20"
-  },
-  "dependencies": {
-    "playwright": "^1.55.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.2"
-  }
+  "engines": { "node": ">=20" },
+  "dependencies": { "playwright": "^1.55.0" },
+  "devDependencies": { "@types/node": "^22.10.0", "tsx": "^4.19.0", "typescript": "^5.7.2" }
 }
