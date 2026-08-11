@@ -8,12 +8,17 @@ import { enqueueAction, type RedditAction } from './action-queue.js';
 const profileDir = path.resolve('.auth/reddit-profile');
 const stateFile = path.resolve('.state/reddit.json');
 const actionsFile = path.resolve('.state/reddit-actions.json');
+const decisionsFile = path.resolve('.state/reddit-decisions.json');
 
+type DecisionState = Record<string, { analyzedAt: string; shouldReply: boolean; reason?: string }>;
 let seen: Record<string, { firstSeen?: string; lastSeen?: string; url?: string }> = {};
 let previousActions: RedditAction[] = [];
+let decisions: DecisionState = {};
 try { seen = JSON.parse(await fs.readFile(stateFile, 'utf8')); } catch {}
 try { previousActions = JSON.parse(await fs.readFile(actionsFile, 'utf8')); } catch {}
+try { decisions = JSON.parse(await fs.readFile(decisionsFile, 'utf8')); } catch {}
 
+const saveDecisions = () => fs.writeFile(decisionsFile, JSON.stringify(decisions, null, 2), 'utf8');
 const context = await chromium.launchPersistentContext(profileDir, { headless: false, viewport: null });
 const page = context.pages()[0] ?? await context.newPage();
 let prepared = 0;
@@ -22,7 +27,8 @@ let failed = 0;
 let geminiCalls = 0;
 const maxGeminiCalls = Number(process.env.REDDIT_MAX_GEMINI_CALLS || 3);
 
-// Newest opportunities first. Do not repeatedly spend Gemini quota on old threads.
+// Newest opportunities first. Each rejected thread is analyzed once, while approved
+// actions can be safely requeued after a browser-only publishing failure.
 for (const [id, meta] of Object.entries(seen).reverse().slice(0, 12)) {
   if (!meta.url) continue;
 
@@ -32,8 +38,6 @@ for (const [id, meta] of Object.entries(seen).reverse().slice(0, 12)) {
     continue;
   }
 
-  // If Gemini already approved this thread and only browser publishing failed,
-  // reuse that exact decision/text instead of calling Gemini again.
   const latestFailed = [...existing].reverse().find(a => a.status === 'failed' && a.text?.trim());
   if (latestFailed) {
     try {
@@ -51,6 +55,12 @@ for (const [id, meta] of Object.entries(seen).reverse().slice(0, 12)) {
     continue;
   }
 
+  if (decisions[id]?.shouldReply === false) {
+    skipped++;
+    console.log(JSON.stringify({ prepared: false, cached: true, threadId: id, reason: decisions[id].reason ?? 'previously_rejected' }));
+    continue;
+  }
+
   if (geminiCalls >= maxGeminiCalls) {
     skipped++;
     continue;
@@ -61,6 +71,9 @@ for (const [id, meta] of Object.entries(seen).reverse().slice(0, 12)) {
     if (!ctx) continue;
     geminiCalls++;
     const gemini = await reasonWithGemini(ctx, 'reply');
+    decisions[id] = { analyzedAt: new Date().toISOString(), shouldReply: gemini.shouldReply, reason: gemini.reason };
+    await saveDecisions();
+
     if (!gemini.shouldReply) {
       skipped++;
       console.log(JSON.stringify({ prepared: false, threadId: id, url: ctx.url, reason: gemini.reason, confidence: gemini.confidence }));
