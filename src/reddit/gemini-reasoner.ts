@@ -11,7 +11,6 @@ const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
 const schema = {
   type: 'object',
-  additionalProperties: false,
   properties: {
     shouldReply: { type: 'boolean' },
     reason: { type: 'string' },
