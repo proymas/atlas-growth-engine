@@ -10,7 +10,7 @@ const stateFile = path.resolve('.state/reddit.json');
 const actionsFile = path.resolve('.state/reddit-actions.json');
 const decisionsFile = path.resolve('.state/reddit-decisions.json');
 
-type DecisionState = Record<string, { analyzedAt: string; shouldReply: boolean; reason?: string }>;
+type DecisionState = Record<string, { analyzedAt: string; shouldReply: boolean; reason?: string; retryAfter?: string }>;
 let seen: Record<string, { firstSeen?: string; lastSeen?: string; url?: string }> = {};
 let previousActions: RedditAction[] = [];
 let decisions: DecisionState = {};
@@ -25,10 +25,15 @@ let prepared = 0;
 let skipped = 0;
 let failed = 0;
 let geminiCalls = 0;
-const maxGeminiCalls = Number(process.env.REDDIT_MAX_GEMINI_CALLS || 3);
+const maxGeminiCalls = Number(process.env.REDDIT_MAX_GEMINI_CALLS || 2);
+const now = Date.now();
 
-// Newest opportunities first. Each rejected thread is analyzed once, while approved
-// actions can be safely requeued after a browser-only publishing failure.
+function backoffMs(error: string) {
+  if (/gemini_http_429/.test(error)) return 15 * 60_000;
+  if (/gemini_http_503/.test(error)) return 5 * 60_000;
+  return 0;
+}
+
 for (const [id, meta] of Object.entries(seen).reverse().slice(0, 12)) {
   if (!meta.url) continue;
 
@@ -55,9 +60,15 @@ for (const [id, meta] of Object.entries(seen).reverse().slice(0, 12)) {
     continue;
   }
 
-  if (decisions[id]?.shouldReply === false) {
+  const cached = decisions[id];
+  if (cached?.shouldReply === false) {
     skipped++;
-    console.log(JSON.stringify({ prepared: false, cached: true, threadId: id, reason: decisions[id].reason ?? 'previously_rejected' }));
+    console.log(JSON.stringify({ prepared: false, cached: true, threadId: id, reason: cached.reason ?? 'previously_rejected' }));
+    continue;
+  }
+  if (cached?.retryAfter && Date.parse(cached.retryAfter) > now) {
+    skipped++;
+    console.log(JSON.stringify({ prepared: false, cooldown: true, threadId: id, retryAfter: cached.retryAfter }));
     continue;
   }
 
@@ -87,8 +98,17 @@ for (const [id, meta] of Object.entries(seen).reverse().slice(0, 12)) {
     }
     await page.waitForTimeout(800);
   } catch (error) {
+    const message = String(error);
+    const wait = backoffMs(message);
+    if (wait > 0) {
+      decisions[id] = { analyzedAt: new Date().toISOString(), shouldReply: true, reason: 'temporary_gemini_error', retryAfter: new Date(Date.now() + wait).toISOString() };
+      await saveDecisions();
+      skipped++;
+      console.error(JSON.stringify({ threadId: id, cooldown: true, retryAfter: decisions[id].retryAfter, error: message, failClosed: true }));
+      continue;
+    }
     failed++;
-    console.error(JSON.stringify({ threadId: id, error: String(error), failClosed: true }));
+    console.error(JSON.stringify({ threadId: id, error: message, failClosed: true }));
   }
 }
 
