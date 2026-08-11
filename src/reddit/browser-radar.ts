@@ -17,40 +17,58 @@ let seen: Record<string, { firstSeen: string; lastSeen: string; url?: string; su
 try { seen = JSON.parse(await fs.readFile(stateFile, 'utf8')); } catch {}
 
 const context = await chromium.launchPersistentContext(profileDir, { headless: false, viewport: null });
-const pages = context.pages();
-const page = pages[0] ?? await context.newPage();
+let page = context.pages()[0] ?? await context.newPage();
 const candidates: RedditCandidate[] = [];
+
+async function ensurePage() {
+  if (page.isClosed()) page = await context.newPage();
+  return page;
+}
 
 for (const subreddit of subreddits) {
   const url = `https://www.reddit.com/r/${subreddit}/new/`;
   let response;
-  try { response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 }); }
-  catch (error) { console.error(JSON.stringify({ subreddit, ok: false, error: String(error) })); continue; }
+  try {
+    const p = await ensurePage();
+    response = await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  } catch (error) {
+    console.error(JSON.stringify({ subreddit, ok: false, error: String(error) }));
+    try { page = await context.newPage(); } catch {}
+    continue;
+  }
 
+  const p = await ensurePage();
   const status = response?.status() ?? null;
-  if (!response?.ok()) { console.error(JSON.stringify({ subreddit, ok: false, status, url: page.url() })); continue; }
-  await page.waitForTimeout(2500);
+  if (!response?.ok()) { console.error(JSON.stringify({ subreddit, ok: false, status, url: p.url() })); continue; }
+  try { await p.waitForTimeout(2500); } catch { page = await context.newPage(); continue; }
 
-  const extracted = await page.evaluate(() => {
-    const anchors = Array.from(document.querySelectorAll('a[href*="/comments/"]')) as HTMLAnchorElement[];
-    const out: Array<{ id: string; title: string; url: string }> = [];
-    const used = new Set<string>();
-    for (const a of anchors) {
-      const href = a.href;
-      const match = href.match(/\/comments\/([a-z0-9]+)\//i);
-      if (!match) continue;
-      const id = match[1];
-      const title = (a.textContent ?? '').trim().replace(/\s+/g, ' ');
-      if (!title || title.length < 8 || used.has(id)) continue;
-      used.add(id);
-      out.push({ id, title, url: href.split('?')[0] });
-    }
-    return out.slice(0, 25);
-  });
+  let extracted: Array<{ id: string; title: string; url: string }> = [];
+  try {
+    extracted = await p.evaluate(() => {
+      const anchors = Array.from(document.querySelectorAll('a[href*="/comments/"]')) as HTMLAnchorElement[];
+      const out: Array<{ id: string; title: string; url: string }> = [];
+      const used = new Set<string>();
+      for (const a of anchors) {
+        const href = a.href;
+        const match = href.match(/\/comments\/([a-z0-9]+)\//i);
+        if (!match) continue;
+        const id = match[1];
+        const title = (a.textContent ?? '').trim().replace(/\s+/g, ' ');
+        if (!title || title.length < 8 || used.has(id)) continue;
+        used.add(id);
+        out.push({ id, title, url: href.split('?')[0] });
+      }
+      return out.slice(0, 25);
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ subreddit, ok: false, phase: 'extract', error: String(error) }));
+    try { page = await context.newPage(); } catch {}
+    continue;
+  }
 
   console.log(JSON.stringify({ subreddit, ok: true, status, extracted: extracted.length }));
   for (const item of extracted) candidates.push({ id: item.id, subreddit, title: item.title, body: '', author: '', url: item.url, createdUtc: 0 });
-  await page.waitForTimeout(1800);
+  try { await p.waitForTimeout(1000); } catch {}
 }
 
 const allScored = candidates.map(scoreCandidate).sort((a, b) => b.score - a.score);
