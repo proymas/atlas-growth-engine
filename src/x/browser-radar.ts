@@ -1,17 +1,9 @@
-import { chromium } from 'playwright';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
 import { buildSearchQueries, draftReply, scoreCandidate, type XCandidate } from './growth-core.js';
 import { loadXState, saveXState, upsertRecord } from './state.js';
+import { launchXContext } from './browser-context.js';
 
-const authFile = path.resolve('.auth/x.json');
-if (!existsSync(authFile)) {
-  throw new Error('Missing .auth/x.json. Run npm.cmd run x:login after the X login limit clears.');
-}
-
-const browser = await chromium.launch({ headless: true });
-const context = await browser.newContext({ storageState: authFile });
-const page = await context.newPage();
+const context = await launchXContext(false);
+const page = context.pages()[0] ?? await context.newPage();
 const state = await loadXState();
 const candidates = new Map<string, XCandidate>();
 
@@ -35,41 +27,23 @@ try {
       if (!raw.text || raw.username.toLowerCase() === 'atlasvalidproj') continue;
       candidates.set(raw.id, { ...raw, discoveredAt: new Date().toISOString() });
     }
-
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(1200);
   }
 
   const decisions = [...candidates.values()].map(scoreCandidate).sort((a, b) => b.score - a.score);
   const queue = decisions.filter((d) => d.qualified && !state.records[d.candidate.id]).slice(0, 10).map((d) => ({
-    id: d.candidate.id,
-    url: d.candidate.url,
-    username: d.candidate.username,
-    score: d.score,
-    reasons: d.reasons,
-    text: d.candidate.text,
-    proposedReply: draftReply(d),
+    id: d.candidate.id, url: d.candidate.url, username: d.candidate.username, score: d.score,
+    reasons: d.reasons, text: d.candidate.text, proposedReply: draftReply(d),
   }));
 
   for (const d of decisions) {
     if (state.records[d.candidate.id]) continue;
     upsertRecord(state, {
-      id: d.candidate.id,
-      url: d.candidate.url,
-      username: d.candidate.username,
-      status: d.qualified ? 'qualified' : 'seen',
-      score: d.score,
-      ...(d.qualified ? { lastReplyText: draftReply(d) } : {}),
+      id: d.candidate.id, url: d.candidate.url, username: d.candidate.username,
+      status: d.qualified ? 'qualified' : 'seen', score: d.score,
+      ...(d.qualified ? { lastReplyText: d.candidate.text } : {}),
     });
   }
   await saveXState(state);
-
-  console.log(JSON.stringify({
-    mode: 'browser-radar',
-    discovered: candidates.size,
-    qualified: decisions.filter((d) => d.qualified).length,
-    actionQueue: queue,
-  }, null, 2));
-} finally {
-  await context.close();
-  await browser.close();
-}
+  console.log(JSON.stringify({ mode: 'browser-radar', discovered: candidates.size, qualified: decisions.filter((d) => d.qualified).length, actionQueue: queue }, null, 2));
+} finally { await context.close(); }
