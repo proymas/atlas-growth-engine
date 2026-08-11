@@ -31,13 +31,12 @@ async function firstVisible(candidates: Locator[], timeoutMs = 12_000): Promise<
         if (await item.isVisible().catch(() => false)) return item;
       }
     }
-    await new Promise(r => setTimeout(r, 350));
+    await new Promise(r => setTimeout(r, 300));
   }
   return null;
 }
 
 async function findEditor(page: Page): Promise<Locator | null> {
-  // Reddit can render either a classic textarea or the newer rich-text composer.
   const trigger = await firstVisible([
     page.getByText(/add a comment|join the conversation/i),
     page.getByRole('button', { name: /add a comment|comment/i }),
@@ -76,13 +75,28 @@ async function findSubmit(page: Page, editor: Locator): Promise<Locator | null> 
   const form = editor.locator('xpath=ancestor::form[1]');
   return await firstVisible([
     composer.locator('button[type="submit"]'),
-    composer.getByRole('button', { name: /^comment$|^reply$|post/i }),
+    composer.locator('button').filter({ hasText: /^\s*(comment|reply|post)\s*$/i }),
+    composer.locator('[slot*="submit" i]'),
+    composer.locator('faceplate-tracker').filter({ hasText: /comment|reply|post/i }),
     form.locator('button[type="submit"]'),
-    form.getByRole('button', { name: /^comment$|^reply$|post/i }),
-    page.locator('button[type="submit"]').filter({ hasText: /comment|reply|post/i }),
-    page.getByRole('button', { name: /^comment$|^reply$|post/i }),
+    form.locator('button').filter({ hasText: /^\s*(comment|reply|post)\s*$/i }),
+    page.locator('button[type="submit"]'),
+    page.locator('button').filter({ hasText: /^\s*(comment|reply|post)\s*$/i }),
+    page.getByRole('button', { name: /^comment$|^reply$|^post$/i }),
     page.locator('button[aria-label*="comment" i], button[aria-label*="reply" i]'),
-  ], 12_000);
+    page.locator('[data-testid*="submit" i], [data-testid*="comment-submit" i]'),
+  ], 10_000);
+}
+
+async function verifyPosted(page: Page, text: string): Promise<boolean> {
+  const needle = text.trim().slice(0, Math.min(70, text.trim().length));
+  if (!needle) return false;
+  for (let i = 0; i < 10; i++) {
+    const body = await page.locator('body').innerText().catch(() => '');
+    if (body.includes(needle)) return true;
+    await page.waitForTimeout(700);
+  }
+  return false;
 }
 
 for (const action of queued) {
@@ -99,19 +113,23 @@ for (const action of queued) {
     const editor = await findEditor(page);
     if (!editor) throw new Error('reply_editor_not_found');
     await fillEditor(editor, action.text);
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(800);
 
     const submit = await findSubmit(page, editor);
-    if (!submit) throw new Error('submit_button_not_found');
-    if (await submit.isDisabled().catch(() => false)) throw new Error('submit_button_disabled');
-    await submit.click();
+    if (submit) {
+      if (await submit.isDisabled().catch(() => false)) throw new Error('submit_button_disabled');
+      await submit.click().catch(async () => await submit.click({ force: true }));
+    } else {
+      // Reddit's current composer sometimes hides the submit control from accessibility selectors.
+      // Ctrl/Cmd+Enter submits the focused composer and is a safer fallback than guessing a random button.
+      await editor.click();
+      await editor.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+    }
 
-    await page.waitForTimeout(3500);
-    const needle = action.text.trim().slice(0, Math.min(70, action.text.trim().length));
-    const verified = await page.locator('body').innerText().then(t => Boolean(needle && t.includes(needle))).catch(() => false);
+    const verified = await verifyPosted(page, action.text);
     if (!verified) {
-      await updateAction(action.id, { status: 'failed', error: 'publish_not_verified' });
-      console.error(JSON.stringify({ published: false, actionId: action.id, error: 'publish_not_verified' }));
+      await updateAction(action.id, { status: 'failed', error: submit ? 'publish_not_verified_after_click' : 'publish_not_verified_after_keyboard_submit' });
+      console.error(JSON.stringify({ published: false, actionId: action.id, error: submit ? 'publish_not_verified_after_click' : 'publish_not_verified_after_keyboard_submit' }));
       continue;
     }
 
