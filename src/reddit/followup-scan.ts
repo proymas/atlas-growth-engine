@@ -16,14 +16,33 @@ const page = context.pages()[0] ?? await context.newPage();
 let queued = 0;
 let skipped = 0;
 let failed = 0;
+let geminiCalls = 0;
+
+function hasReplyToAtlas(comments: Array<{ author: string; body: string; depth: number }>) {
+  for (let i = 0; i < comments.length; i++) {
+    const mine = comments[i];
+    if (mine.author !== 'AtlasValidProj') continue;
+    for (let j = i + 1; j < comments.length; j++) {
+      const c = comments[j];
+      if (c.depth <= mine.depth) break;
+      if (c.author && c.author !== 'AtlasValidProj' && c.body.length > 5) return true;
+    }
+  }
+  return false;
+}
 
 for (const prior of published) {
   try {
     const ctx = await readThreadContext(page, prior.threadUrl);
     if (!ctx) continue;
-    const hasExternalReply = ctx.comments.some(c => c.author && c.author !== 'AtlasValidProj' && c.body.length > 20);
-    if (!hasExternalReply) continue;
 
+    if (!hasReplyToAtlas(ctx.comments)) {
+      skipped++;
+      console.log(JSON.stringify({ followupQueued: false, threadUrl: ctx.url, reason: 'no_new_reply_to_atlas' }));
+      continue;
+    }
+
+    geminiCalls++;
     const gemini = await reasonWithGemini(ctx, 'followup');
     if (!gemini.shouldReply) {
       skipped++;
@@ -44,5 +63,5 @@ for (const prior of published) {
   }
 }
 
-console.log(JSON.stringify({ ok: failed === 0, queued, skipped, failed }, null, 2));
+console.log(JSON.stringify({ ok: failed === 0, queued, skipped, failed, geminiCalls }, null, 2));
 await context.close();
